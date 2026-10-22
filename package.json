@@ -1,0 +1,30 @@
+{
+  "name": "creditcard-api",
+  "version": "1.0.0",
+  "description": "API do Assistente de Recomendação de Cartões de Crédito",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "tsx src/seeds/index.ts",
+    "db:studio": "prisma studio"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@prisma/client": "^6.19.3",
+    "fastify": "^5.10.0",
+    "mongodb": "^6.21.0",
+    "tsx": "^4.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "prisma": "^6.19.3",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,607 @@
+// ═══════════════════════════════════════════════════════════════
+// Assistente de Recomendação de Cartões de Crédito
+// Schema PostgreSQL — 5 Domínios
+// ═══════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════
+// ENUMS
+// ═══════════════════════════════════════════
+
+enum Segment {
+  ALTA_RENDA
+  INTERMEDIARIO
+  ENTRADA
+}
+
+enum IssuerType {
+  BANCO_COMERCIAL
+  BANCO_DIGITAL
+  BANCO_INVESTIMENTOS
+  COOPERATIVA
+  FINTECH
+  OUTRO
+}
+
+enum CardStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  NUMERIC_INPUT
+  SLIDER
+  YES_NO
+}
+
+enum AuthMethod {
+  EMAIL
+  GOOGLE
+  APPLE
+}
+
+// ═══════════════════════════════════════════
+// DOMÍNIO 1: CORE — CARTÕES E BENEFÍCIOS
+// ═══════════════════════════════════════════
+
+model Issuer {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  type      IssuerType @default(OUTRO)
+  logoUrl   String?    @map("logo_url")
+  website   String?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  cards     Card[]
+
+  @@map("issuers")
+}
+
+model Brand {
+  id        Int      @id @default(autoincrement())
+  name      String
+  variant   String
+  benefits  String[]
+  isActive  Boolean  @default(true) @map("is_active")
+  siteUrl   String?  @map("site_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  cards     Card[]
+
+  @@unique([name, variant])
+  @@map("brands")
+}
+
+model Card {
+  id                Int        @id @default(autoincrement())
+  name              String     @map("card_name")
+  slug              String     @unique
+  status            CardStatus @default(ACTIVE)
+  segment           Segment    @default(ENTRADA)
+  annualFee         Decimal    @default(0) @map("annual_fee") @db.Decimal(10, 2)
+  category          String
+  cardMaterial      String?    @map("card_material")
+  contactless       Boolean    @default(true)
+  isInternational   Boolean    @default(true) @map("is_international")
+  isDebit           Boolean    @default(false) @map("is_debit")
+  hasVirtualCards   Boolean    @default(false) @map("has_virtual_cards")
+  cardModality      String?    @map("card_modality")
+  pictureUrl        String?    @map("picture_url")
+
+  // Spreads e taxas
+  spreadOn          String?    @map("spread_on")
+  spreadRate        Decimal    @default(0) @map("spread_rate") @db.Decimal(5, 2)
+  iofRate           Decimal    @default(0) @map("iof_rate") @db.Decimal(5, 2)
+
+  // Pontos
+  pointsExpire      Boolean    @default(false) @map("points_expire")
+  pointsAccelerator Boolean    @default(false) @map("points_accelerator")
+  expenseCode       Decimal    @default(0) @map("expense_code") @db.Decimal(5, 2)
+
+  // Rankings
+  rankPoints        Int        @default(0) @map("rank_points")
+  rankBenefits      Int        @default(0) @map("rank_benefits")
+  rankAnnuity       Int        @default(0) @map("rank_annuity")
+  rankMilesProgram  Int        @default(0) @map("rank_miles_program")
+  rankVipLounges    Decimal    @default(0) @map("rank_vip_lounges") @db.Decimal(3, 1)
+
+  // App de salas VIP
+  vipLoungeApp      String?    @map("vip_lounge_app")
+
+  // Observações
+  obsSystemPoints   String[]   @map("obs_system_points")
+  obsSummary        String[]   @map("obs_summary")
+  additionalInfo    String[]   @map("additional_info")
+
+  // FKs
+  issuerId          Int        @map("issuer_id")
+  issuer            Issuer     @relation(fields: [issuerId], references: [id])
+  brandId           Int        @map("brand_id")
+  brand             Brand      @relation(fields: [brandId], references: [id])
+
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  // Relações filhas
+  wallets           CardWallet[]
+  tags              CardTag[]
+  zeroFees          ZeroFee[]
+  rewards           Reward[]
+  cashbacks         Cashback[]
+  lounges           Lounge[]
+  mileages          Mileage[]
+  exclusive         Exclusive?
+  requirement       Requirement?
+  criterionScores   CardCriterionScore[]
+  favorites         UserFavorite[]
+  recommendations   RecommendationCard[]
+
+  @@index([segment])
+  @@index([status])
+  @@index([issuerId])
+  @@index([brandId])
+  @@index([annualFee])
+  @@index([segment, status])
+  @@map("cards")
+}
+
+// Carteiras digitais (N:N)
+model Wallet {
+  id    Int          @id @default(autoincrement())
+  name  String       @unique
+  cards CardWallet[]
+
+  @@map("wallets")
+}
+
+model CardWallet {
+  cardId   Int
+  walletId Int
+  card     Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+
+  @@id([cardId, walletId])
+  @@map("card_wallets")
+}
+
+// Tags para classificar cartões
+model Tag {
+  id    Int       @id @default(autoincrement())
+  slug  String    @unique
+  label String
+  cards CardTag[]
+
+  @@map("tags")
+}
+
+model CardTag {
+  cardId Int
+  tagId  Int
+  card   Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id])
+
+  @@id([cardId, tagId])
+  @@map("card_tags")
+}
+
+// --- Benefícios ---
+
+model ZeroFee {
+  id          Int      @id @default(autoincrement())
+  expenses    String?
+  investments String?
+  feeDiscount Int      @default(0) @map("fee_discount")
+  notes       String?
+  conditions  String[] @map("get_conditions")
+  tips        String[] @map("fee_tips")
+  cardId      Int      @map("card_id")
+  card        Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("zero_fees")
+}
+
+model Reward {
+  id              Int      @id @default(autoincrement())
+  expenses        String
+  pointsPerDollar Decimal  @default(0) @map("points_per_dollar") @db.Decimal(5, 2)
+  pointsPerReal   Decimal  @default(0) @map("points_per_real") @db.Decimal(5, 2)
+  rules           String?
+  pointsLimit     Int      @default(0) @map("points_limit")
+  expiration      Boolean  @default(false)
+  notes           String?
+  tips            String[] @map("reward_tips")
+  cardId          Int      @map("card_id")
+  card            Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("rewards")
+}
+
+model Cashback {
+  id          Int      @id @default(autoincrement())
+  percentage  Decimal  @default(0) @map("pct_cashback") @db.Decimal(5, 2)
+  description String   @map("txt_cashback")
+  notes       String[] @map("obs_cashback")
+  tips        String[] @map("cash_tips")
+  cardId      Int      @map("card_id")
+  card        Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("cashbacks")
+}
+
+model Lounge {
+  id          Int      @id @default(autoincrement())
+  name        String   @map("lounge_name")
+  brAirports  String[] @map("br_airports")
+  intAirport  String?  @map("int_airport")
+  accessLimit String   @map("access_limit")
+  conditions  String?
+  isPaid      Boolean  @default(false) @map("is_paid")
+  tips        String[] @map("vip_tips")
+  cardId      Int      @map("card_id")
+  card        Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("lounges")
+}
+
+model Mileage {
+  id               Int      @id @default(autoincrement())
+  programName      String   @map("program_name")
+  transferPrograms String[] @map("transfer_programs")
+  airlines         String[]
+  hotels           String[]
+  ratePointsMiles  Decimal  @default(1) @map("rate_points_miles") @db.Decimal(5, 2)
+  minTransfer      Int      @default(0) @map("min_transfer")
+  exchangeStores   String[] @map("exchange_stores")
+  payBills         Boolean  @default(false) @map("pay_bills")
+  payCashback      Boolean  @default(false) @map("pay_cashback")
+  otherOptions     String[] @map("other_options")
+  tips             String[] @map("mile_tips")
+  cardId           Int      @map("card_id")
+  card             Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("mileages")
+}
+
+model Exclusive {
+  id              Int      @id @default(autoincrement())
+  tagName         String?  @map("tag_name")
+  tagAmount       Int      @default(0) @map("tag_amount")
+  exclusiveOffers String[] @map("exclusive_offers")
+  additionalInfo  String[] @map("additional_info")
+  cardId          Int      @unique @map("card_id")
+  card            Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("exclusives")
+}
+
+model Requirement {
+  id             Int      @id @default(autoincrement())
+  accountHolder  Boolean  @default(true) @map("account_holder")
+  addCardsAmount Int      @default(0) @map("add_cards_amount")
+  obsAddCards    String?  @map("obs_add_cards")
+  addCardsCharge Decimal  @default(0) @map("add_cards_charge") @db.Decimal(10, 2)
+  cardLimit      String?  @map("card_limit")
+  conditions     String[] @map("get_conditions")
+  notes          String[]
+  tips           String[] @map("req_tips")
+  cardId         Int      @unique @map("card_id")
+  card           Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("requirements")
+}
+
+// ═══════════════════════════════════════════
+// DOMÍNIO 2: MOTOR DE RECOMENDAÇÃO
+// ═══════════════════════════════════════════
+
+model Criterion {
+  id           Int      @id @default(autoincrement())
+  key          String   @unique
+  label        String
+  description  String?
+  maxScore     Int      @default(10) @map("max_score")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  cardScores    CardCriterionScore[]
+  optionWeights OptionCriterionWeight[]
+  userWeights   UserProfileCriterion[]
+
+  @@map("criteria")
+}
+
+model CardCriterionScore {
+  cardId      Int
+  criterionId Int
+  score       Decimal  @db.Decimal(5, 2)
+  notes       String?
+
+  card        Card      @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  criterion   Criterion @relation(fields: [criterionId], references: [id])
+
+  @@id([cardId, criterionId])
+  @@map("card_criterion_scores")
+}
+
+// --- Onboarding ---
+
+model OnboardingSection {
+  id           Int                  @id @default(autoincrement())
+  key          String               @unique
+  title        String
+  description  String?
+  displayOrder Int                  @map("display_order")
+  iconName     String?              @map("icon_name")
+  isActive     Boolean              @default(true) @map("is_active")
+  questions    OnboardingQuestion[]
+
+  @@map("onboarding_sections")
+}
+
+model OnboardingQuestion {
+  id           Int          @id @default(autoincrement())
+  key          String       @unique
+  text         String
+  helpText     String?      @map("help_text")
+  type         QuestionType @default(SINGLE_CHOICE)
+  displayOrder Int          @map("display_order")
+  isRequired   Boolean      @default(true) @map("is_required")
+  isActive     Boolean      @default(true) @map("is_active")
+
+  // Condicional
+  showWhenQuestionId Int?   @map("show_when_question_id")
+  showWhenOptionId   Int?   @map("show_when_option_id")
+  showWhenQuestion   OnboardingQuestion? @relation("ConditionalQuestion", fields: [showWhenQuestionId], references: [id])
+  showWhenOption     QuestionOption?     @relation("ConditionalOption", fields: [showWhenOptionId], references: [id])
+
+  sectionId    Int                  @map("section_id")
+  section      OnboardingSection    @relation(fields: [sectionId], references: [id])
+  options      QuestionOption[]
+  answers      UserAnswer[]
+  dependentQuestions OnboardingQuestion[] @relation("ConditionalQuestion")
+
+  @@index([sectionId, displayOrder])
+  @@map("onboarding_questions")
+}
+
+model QuestionOption {
+  id           Int      @id @default(autoincrement())
+  text         String
+  value        String?
+  displayOrder Int      @map("display_order")
+  iconName     String?  @map("icon_name")
+  isActive     Boolean  @default(true) @map("is_active")
+
+  questionId   Int      @map("question_id")
+  question     OnboardingQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  criterionWeights OptionCriterionWeight[]
+  answers          UserAnswer[]
+  dependentQuestions OnboardingQuestion[] @relation("ConditionalOption")
+
+  @@index([questionId, displayOrder])
+  @@map("question_options")
+}
+
+model OptionCriterionWeight {
+  optionId    Int
+  criterionId Int
+  weight      Decimal  @db.Decimal(5, 2)
+
+  option      QuestionOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  criterion   Criterion      @relation(fields: [criterionId], references: [id])
+
+  @@id([optionId, criterionId])
+  @@map("option_criterion_weights")
+}
+
+// ═══════════════════════════════════════════
+// DOMÍNIO 3: USUÁRIO E PERFIL
+// ═══════════════════════════════════════════
+
+model AppUser {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  name         String?
+  avatarUrl    String?  @map("avatar_url")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  authProviders   AuthProvider[]
+  profile         UserProfile?
+  answers         UserAnswer[]
+  favorites       UserFavorite[]
+  recommendations Recommendation[]
+  comparisons     Comparison[]
+
+  @@map("app_users")
+}
+
+model AuthProvider {
+  id           Int        @id @default(autoincrement())
+  method       AuthMethod
+  providerUid  String?    @map("provider_uid")
+  passwordHash String?    @map("password_hash")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  userId       Int        @map("user_id")
+  user         AppUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([method, providerUid])
+  @@unique([method, userId])
+  @@map("auth_providers")
+}
+
+model UserProfile {
+  id             Int       @id @default(autoincrement())
+  onboardingDone Boolean   @default(false) @map("onboarding_done")
+  lastUpdatedAt  DateTime  @default(now()) @map("last_updated_at")
+
+  userId         Int       @unique @map("user_id")
+  user           AppUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  criterionWeights UserProfileCriterion[]
+
+  @@map("user_profiles")
+}
+
+model UserProfileCriterion {
+  profileId   Int
+  criterionId Int
+  weight      Decimal  @db.Decimal(7, 2)
+
+  profile     UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  criterion   Criterion   @relation(fields: [criterionId], references: [id])
+
+  @@id([profileId, criterionId])
+  @@map("user_profile_criteria")
+}
+
+model UserAnswer {
+  id           Int      @id @default(autoincrement())
+  answeredAt   DateTime @default(now()) @map("answered_at")
+
+  userId       Int      @map("user_id")
+  questionId   Int      @map("question_id")
+  optionId     Int?     @map("option_id")
+  numericValue Decimal? @map("numeric_value") @db.Decimal(12, 2)
+
+  user         AppUser            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question     OnboardingQuestion @relation(fields: [questionId], references: [id])
+  option       QuestionOption?    @relation(fields: [optionId], references: [id])
+
+  @@index([userId])
+  @@index([userId, questionId])
+  @@map("user_answers")
+}
+
+model UserFavorite {
+  userId    Int
+  cardId    Int
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card      Card    @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@id([userId, cardId])
+  @@map("user_favorites")
+}
+
+model Recommendation {
+  id              Int       @id @default(autoincrement())
+  generatedAt     DateTime  @default(now()) @map("generated_at")
+  profileSnapshot Json?     @map("profile_snapshot")
+
+  userId          Int       @map("user_id")
+  user            AppUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  cards           RecommendationCard[]
+
+  @@index([userId])
+  @@map("recommendations")
+}
+
+model RecommendationCard {
+  id               Int      @id @default(autoincrement())
+  compatScore      Decimal  @map("compat_score") @db.Decimal(5, 2)
+  position         Int
+
+  recommendationId Int      @map("recommendation_id")
+  cardId           Int      @map("card_id")
+
+  recommendation   Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  card             Card           @relation(fields: [cardId], references: [id])
+  reasons          RecommendationReason[]
+
+  @@index([recommendationId])
+  @@map("recommendation_cards")
+}
+
+model RecommendationReason {
+  id                   Int     @id @default(autoincrement())
+  reason               String
+  relevance            Int
+
+  recommendationCardId Int     @map("recommendation_card_id")
+  recommendationCard   RecommendationCard @relation(fields: [recommendationCardId], references: [id], onDelete: Cascade)
+
+  @@map("recommendation_reasons")
+}
+
+model Comparison {
+  id        Int      @id @default(autoincrement())
+  title     String?
+  cardIds   Int[]    @map("card_ids")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  userId    Int      @map("user_id")
+  user      AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("comparisons")
+}
+
+// ═══════════════════════════════════════════
+// DOMÍNIO 4: CONTEÚDO EDUCATIVO
+// ═══════════════════════════════════════════
+
+model ContentCategory {
+  id       Int       @id @default(autoincrement())
+  slug     String    @unique
+  name     String
+  iconName String?   @map("icon_name")
+  articles Article[]
+
+  @@map("content_categories")
+}
+
+model Article {
+  id          Int       @id @default(autoincrement())
+  slug        String    @unique
+  title       String
+  summary     String
+  body        String    @db.Text
+  imageUrl    String?   @map("image_url")
+  isPublished Boolean   @default(false) @map("is_published")
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  categoryId  Int       @map("category_id")
+  category    ContentCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([isPublished, publishedAt])
+  @@map("articles")
+}
+
+// ═══════════════════════════════════════════
+// DOMÍNIO 5: FUTURO
+// ═══════════════════════════════════════════
+
+model BenefitChange {
+  id          Int      @id @default(autoincrement())
+  cardId      Int      @map("card_id")
+  changeType  String   @map("change_type")
+  description String
+  oldValue    String?  @map("old_value")
+  newValue    String?  @map("new_value")
+  changedAt   DateTime @default(now()) @map("changed_at")
+
+  @@index([cardId])
+  @@index([changedAt])
+  @@map("benefit_changes")
+}
